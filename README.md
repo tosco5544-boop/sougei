@@ -1,4 +1,4 @@
-# デイサービス送迎システム（Cloudflare版・Google API不使用）
+# デイサービス送迎システム（Cloudflare Workers版・Google API不使用）
 
 デイサービス籠上の湯（静岡市葵区籠上7-5）を発着地点にした送迎配車システムです。
 Googleの有料APIは使わず、公的な地図と OpenStreetMap の道路データで動きます。**API利用料は0円**で、かかるのはCloudflareの費用だけです（小規模なら無料プランに収まります）。
@@ -8,21 +8,22 @@ Googleの有料APIは使わず、公的な地図と OpenStreetMap の道路デ�
 | 機能 | 使うもの | 動く場所 |
 |---|---|---|
 | 地図の表示 | 国土地理院 地理院タイル（淡色・標準・写真） | 職員のブラウザ |
-| 住所 → 位置 | 国土地理院 住所検索 | Cloudflare Pages Functions（`/api/geocode`）が中継 |
+| 住所 → 位置 | 国土地理院 住所検索 | Cloudflare Workers（`/api/geocode`）が中継 |
 | 道路の所要時間・ルート | OpenStreetMapの道路網を `roads.bin` に変換 → ブラウザ内で経路計算 | 職員のブラウザ（Web Worker） |
 | 配車の最適化 | `optimizer.js` | 職員のブラウザ |
 | データの共有 | Cloudflare KV（`/api/data`） | Cloudflare |
 | ログイン | Cloudflare Access | Cloudflare |
 
-経路計算サーバーは要りません。施設から半径12kmの道路網を数MBのファイルにしてPagesに置き、ブラウザで計算します（利用者20人なら1秒前後）。
+経路計算サーバーは要りません。施設から半径12kmの道路網を数MBのファイルにしてWorkersの静的ファイルとして置き、ブラウザで計算します（利用者20人なら1秒前後）。
 
 ```
 .github/workflows/   … 道路データの自動更新・テスト
-public/              … Pages で配信するファイル
+src/worker.js        … Workers の入口（/api の振り分け・画面配信）
+public/              … 配信する画面ファイル
   index.html  app.js  optimizer.js  router.js
   graph/roads.bin    … 道路網（scripts/build-graph.mjs で作る）
   graph/meta.json
-functions/api/
+functions/api/       … API本体（worker.js から呼ばれる）
   geocode.js         … 住所検索の中継
   data.js            … データ保存（KV）
 scripts/build-graph.mjs … 道路網の作成
@@ -30,7 +31,7 @@ test/                … テスト（npm test）
 wrangler.toml
 ```
 
-## 初回セットアップ（GitHub → Cloudflare Pages）
+## 初回セットアップ（GitHub → Cloudflare Workers）
 
 パソコンにNode.jsを入れなくても、ブラウザ操作だけで公開できます。
 
@@ -41,42 +42,41 @@ wrangler.toml
 
 ### 2. 道路データを作る（GitHub Actions）
 1. リポジトリの「Actions」タブ → 左の「道路データ更新」→「Run workflow」を押します。
-2. 1〜3分で `public/graph/roads.bin` が自動で commit されます。
+2. 1〜3分で `public/graph/roads.bin` が自動で commit され、Cloudflareが自動で公開し直します。
 - 以後は半年ごとに自動で更新します。施設の位置や範囲を変えたいときは、実行時に緯度・経度・半径を入力します。
 - 手元で作る場合は `npm install && npm run build:graph` を実行し、できたファイルを commit してください。
 
-### 3. データ保存用のKVを2つ作る
-Cloudflare ダッシュボード →「ストレージとデータベース」→「KV」→「作成」で、`sougei-data`（本番用）と `sougei-data-preview`（プレビュー用）を作ります。
-それぞれのIDを、GitHub上で `wrangler.toml` を編集して貼り付けます。
-
-### 4. Cloudflare PagesとGitHubをつなぐ
-Cloudflare ダッシュボード →「Workers & Pages」→「作成」→「Pages」→「Gitに接続」で、リポジトリを選びます。
+### 3. Cloudflare WorkersとGitHubをつなぐ
+Cloudflare ダッシュボード →「Workers & Pages」→「作成」→「Gitリポジトリをインポート」で、リポジトリを選びます。
 
 | 項目 | 設定 |
 |---|---|
-| フレームワーク プリセット | なし |
 | ビルドコマンド | （空欄） |
-| ビルド出力ディレクトリ | `public` |
+| デプロイコマンド | `npx wrangler deploy`（既定のまま） |
 | ルートディレクトリ | （空欄） |
 
-「保存してデプロイ」を押すと `https://sougei.pages.dev` などのURLで公開されます。
-以後は、GitHubの `main` ブランチに push するたびに自動で公開し直されます。`main` 以外のブランチには、確認用の別URL（プレビュー）ができます。
+公開されると `https://sougei.<アカウント名>.workers.dev` のURLで開けます。以後は `main` に push するたびに自動で公開し直されます。
 
-KVの割り当てと環境変数は `wrangler.toml` に書いたものが使われます。ダッシュボードで設定する必要はありません。
+### 4. データ保存用のKVを作る
+1. Cloudflare ダッシュボード →「ストレージとデータベース」→「KV」→「作成」で、`sougei-data` を作ります。
+2. 表示されたIDを、GitHub上で `wrangler.toml` の末尾の3行に設定します（先頭の `# ` を消してIDを貼る）。
+3. push すると、データが職員間で共有されるようになります。
+
+KVを設定するまでは、データは各ブラウザの中だけに保存されます。
 
 ### 5. ログインをかける（必須）
 利用者の氏名・住所・介助情報は個人情報です。**本物のデータを入れる前に**必ず行ってください。
 1. Cloudflare ダッシュボード → Zero Trust → Access → Applications →「Add an application」→「Self-hosted」
-2. ドメインに `sougei.pages.dev` と `*.sougei.pages.dev`（プレビュー用）を登録します。
+2. ドメインに `sougei.<アカウント名>.workers.dev` を登録します。独自ドメインを割り当てた場合は、そのドメインを登録します。
 3. ポリシーで、許可する職員のメールアドレス（または `@施設のドメイン`）を指定します。ログイン方法はメールのワンタイムコードで十分です。
-4. `wrangler.toml` の `REQUIRE_ACCESS` を2か所とも `"1"` にして push します。
+4. `wrangler.toml` の `REQUIRE_ACCESS` を `"1"` にして push します。
 
 Zero Trust は50ユーザーまで無料で使えます（最新の条件は確認してください）。
 
 ## 手元で動かす（任意）
 ```bash
 npm install
-npm run dev     # http://localhost:8788 （KVもローカルで動く）
+npm run dev     # http://localhost:8787 （KVもローカルで動く）
 ```
 
 ## 使い方の要点
