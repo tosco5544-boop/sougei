@@ -1,22 +1,19 @@
-# Cloudflare Pages の設定 (GitHub 連携でもこのファイルが使われます)
+# Cloudflare Workers の設定 (GitHub 連携の「npx wrangler deploy」でこのファイルが使われます)
 name = "sougei"
-pages_build_output_dir = "public"
+main = "src/worker.js"
 compatibility_date = "2025-09-01"
 
-# 本番用のデータ保存先 (Cloudflare ダッシュボード → ストレージとデータベース → KV で作成し、ID を貼る)
-[[kv_namespaces]]
-binding = "SOUGEI_KV"
-id = "ここに本番用KVのIDを入れる"
+# 画面ファイル(HTML/JS/道路データ)
+[assets]
+directory = "./public"
+binding = "ASSETS"
 
 [vars]
 # Cloudflare Access を設定したら "1" にする(未ログインのアクセスを拒否)
 REQUIRE_ACCESS = "0"
 
-# プレビュー(main 以外のブランチ)用。本番データを書き換えないよう、別の KV を使う
-[env.preview]
-[[env.preview.kv_namespaces]]
-binding = "SOUGEI_KV"
-id = "ここにプレビュー用KVのIDを入れる"
-
-[env.preview.vars]
-REQUIRE_ACCESS = "0"
+# データ保存先(KV)。作成したら下の3行の先頭の「# 」を消し、ID を貼って push する。
+# 未設定のあいだは、各ブラウザの中だけに保存されます(職員間で共有されません)。
+# [[kv_namespaces]]
+# binding = "SOUGEI_KV"
+# id = "ここにKVのIDを入れる"
