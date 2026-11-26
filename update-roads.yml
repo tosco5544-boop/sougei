@@ -1,0 +1,41 @@
+# 道路データ(public/graph/roads.bin)を OpenStreetMap から作り直して commit します。
+# GitHub の「Actions」タブ → 「道路データ更新」→「Run workflow」で実行。
+# commit されると Cloudflare Pages が自動で公開し直します。
+name: 道路データ更新
+on:
+  workflow_dispatch:
+    inputs:
+      lat:
+        description: 施設の緯度
+        default: "34.9895"
+      lng:
+        description: 施設の経度
+        default: "138.3712"
+      radius:
+        description: 施設からの半径(km)
+        default: "12"
+  schedule:
+    - cron: "0 18 1 */6 *"   # 半年ごと(1月・7月の2日 午前3時 JST)に自動更新
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 道路網を作成
+        run: node scripts/build-graph.mjs --lat "${{ inputs.lat || '34.9895' }}" --lng "${{ inputs.lng || '138.3712' }}" --radius "${{ inputs.radius || '12' }}"
+      - name: サイズ確認 (Cloudflare Pages は1ファイル25MiBまで)
+        run: |
+          size=$(stat -c%s public/graph/roads.bin)
+          echo "roads.bin: $size bytes"
+          if [ "$size" -gt 26214400 ]; then echo "::error::25MiBを超えました。半径を小さくしてください"; exit 1; fi
+      - name: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/graph/roads.bin public/graph/meta.json
+          git diff --cached --quiet && echo "変更なし" || (git commit -m "道路データ更新 $(date +%Y-%m-%d)" && git push)

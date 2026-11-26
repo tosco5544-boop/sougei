@@ -1,0 +1,22 @@
+# Cloudflare Pages の設定 (GitHub 連携でもこのファイルが使われます)
+name = "sougei"
+pages_build_output_dir = "public"
+compatibility_date = "2025-09-01"
+
+# 本番用のデータ保存先 (Cloudflare ダッシュボード → ストレージとデータベース → KV で作成し、ID を貼る)
+[[kv_namespaces]]
+binding = "SOUGEI_KV"
+id = "ここに本番用KVのIDを入れる"
+
+[vars]
+# Cloudflare Access を設定したら "1" にする(未ログインのアクセスを拒否)
+REQUIRE_ACCESS = "0"
+
+# プレビュー(main 以外のブランチ)用。本番データを書き換えないよう、別の KV を使う
+[env.preview]
+[[env.preview.kv_namespaces]]
+binding = "SOUGEI_KV"
+id = "ここにプレビュー用KVのIDを入れる"
+
+[env.preview.vars]
+REQUIRE_ACCESS = "0"
